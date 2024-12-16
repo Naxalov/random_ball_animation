@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Random Ball Animation with Speed Control, Collisions, and IDs</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #222;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      overflow: hidden; /* so no scrollbars appear */
+    }
+
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 999; /* ensure the controls are above the canvas */
+      padding: 10px;
+      background: rgba(0, 0, 0, 0.6);
+      border-radius: 8px;
+    }
+
+    label {
+      display: inline-block;
+      width: 100px;
+      margin-bottom: 5px;
+    }
+
+    input[type="range"],
+    input[type="color"],
+    input[type="checkbox"] {
+      margin-bottom: 10px;
+    }
+
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+  </style>
+</head>
+<body>
+  <!-- Control Panel (outside the canvas) -->
+  <div id="controls">
+    <label for="ballCount">Number of Balls:</label>
+    <input type="range" id="ballCount" min="1" max="200" value="50">
+    <span id="ballCountValue">50</span>
+    <br />
+
+    <label for="ballSize">Ball Size:</label>
+    <input type="range" id="ballSize" min="5" max="50" value="15">
+    <span id="ballSizeValue">15</span>
+    <br />
+
+    <label for="ballColor">Ball Color:</label>
+    <input type="color" id="ballColor" value="#ff0000">
+    <br />
+
+    <label for="randomColor">Random Colors:</label>
+    <input type="checkbox" id="randomColor" checked>
+    <br />
+
+    <label for="speedSlider">Speed:</label>
+    <input type="range" id="speedSlider" min="0.1" max="3" step="0.1" value="1">
+    <span id="speedValue">1.0</span>
+    <br />
+
+    <label for="showIDs">Show IDs:</label>
+    <input type="checkbox" id="showIDs">
+  </div>
+
+  <!-- Canvas for Animation -->
+  <canvas id="myCanvas"></canvas>
+
+  <script>
+    /********************************************************
+     * Canvas & Rendering Setup
+     ********************************************************/
+    const canvas = document.getElementById("myCanvas");
+    const ctx = canvas.getContext("2d");
+
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+
+    /********************************************************
+     * Control References
+     ********************************************************/
+    const ballCountSlider   = document.getElementById("ballCount");
+    const ballCountValue    = document.getElementById("ballCountValue");
+    const ballSizeSlider    = document.getElementById("ballSize");
+    const ballSizeValue     = document.getElementById("ballSizeValue");
+    const ballColorPicker   = document.getElementById("ballColor");
+    const randomColorCheck  = document.getElementById("randomColor");
+    const speedSlider       = document.getElementById("speedSlider");
+    const speedValue        = document.getElementById("speedValue");
+    const showIDsCheck      = document.getElementById("showIDs");
+
+    // Global speed multiplier
+    let speedMultiplier = parseFloat(speedSlider.value);
+
+    /********************************************************
+     * Ball Class & Data
+     ********************************************************/
+    let balls = [];
+    let nextBallID = 1; // Keep track of unique IDs
+
+    class Ball {
+      constructor(x, y, radius, color, id) {
+        this.x = x;
+        this.y = y;
+        this.radius = radius;
+        this.color = color;
+        this.id = id;
+        // Random velocity
+        this.vx = (Math.random() - 0.5) * 4;
+        this.vy = (Math.random() - 0.5) * 4;
+      }
+
+      draw(context, showIDs) {
+        // Draw the circle
+        context.beginPath();
+        context.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        context.fillStyle = this.color;
+        context.fill();
+
+        // If user requested to show IDs, draw the ID text in the center
+        if (showIDs) {
+          context.fillStyle = "#fff";
+          context.font = "12px Arial";
+          context.textAlign = "center";
+          context.textBaseline = "middle";
+          context.fillText(this.id, this.x, this.y);
+        }
+      }
+
+      update() {
+        // Multiply velocity by the speed multiplier
+        this.x += this.vx * speedMultiplier;
+        this.y += this.vy * speedMultiplier;
+
+        // Bounce off left/right edges
+        if (this.x - this.radius < 0) {
+          this.x = this.radius;
+          this.vx = -this.vx;
+        } else if (this.x + this.radius > canvas.width) {
+          this.x = canvas.width - this.radius;
+          this.vx = -this.vx;
+        }
+
+        // Bounce off top/bottom edges
+        if (this.y - this.radius < 0) {
+          this.y = this.radius;
+          this.vy = -this.vy;
+        } else if (this.y + this.radius > canvas.height) {
+          this.y = canvas.height - this.radius;
+          this.vy = -this.vy;
+        }
+      }
+    }
+
+    /********************************************************
+     * Utility Functions
+     ********************************************************/
+    function getRandomColor() {
+      const r = Math.floor(Math.random() * 256);
+      const g = Math.floor(Math.random() * 256);
+      const b = Math.floor(Math.random() * 256);
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    /********************************************************
+     * Ball Collision Logic
+     ********************************************************/
+    function detectCollisions() {
+      for (let i = 0; i < balls.length; i++) {
+        for (let j = i + 1; j < balls.length; j++) {
+          const bA = balls[i];
+          const bB = balls[j];
+
+          const dx = bB.x - bA.x;
+          const dy = bB.y - bA.y;
+          const distSq = dx * dx + dy * dy;
+          const minDist = bA.radius + bB.radius;
+
+          if (distSq <= minDist * minDist) {
+            resolveCollision(bA, bB);
+          }
+        }
+      }
+    }
+
+    /** 
+     * Resolve collision between two equal-mass balls (elastic collision).
+     */
+    function resolveCollision(ballA, ballB) {
+      const dx = ballB.x - ballA.x;
+      const dy = ballB.y - ballA.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      // Normalized direction from A->B
+      const nx = dx / dist;
+      const ny = dy / dist;
+
+      // Dot products (velocity projections)
+      const pA = ballA.vx * nx + ballA.vy * ny;
+      const pB = ballB.vx * nx + ballB.vy * ny;
+
+      // Swap normal velocity components
+      const tmp = pA;
+      const new_pA = pB;
+      const new_pB = tmp;
+
+      // Tangential components remain the same
+      const vxA_tan = ballA.vx - pA * nx;
+      const vyA_tan = ballA.vy - pA * ny;
+      const vxB_tan = ballB.vx - pB * nx;
+      const vyB_tan = ballB.vy - pB * ny;
+
+      // Reassign
+      ballA.vx = vxA_tan + new_pA * nx;
+      ballA.vy = vyA_tan + new_pA * ny;
+      ballB.vx = vxB_tan + new_pB * nx;
+      ballB.vy = vyB_tan + new_pB * ny;
+
+      // Slightly separate the balls so they don't overlap
+      const overlap = (ballA.radius + ballB.radius - dist) / 2;
+      ballA.x -= overlap * nx;
+      ballA.y -= overlap * ny;
+      ballB.x += overlap * nx;
+      ballB.y += overlap * ny;
+    }
+
+    /********************************************************
+     * Creation & Animation
+     ********************************************************/
+    function createBalls() {
+      balls = [];
+      nextBallID = 1; // reset ID counter
+
+      const count = parseInt(ballCountSlider.value, 10);
+      const size  = parseInt(ballSizeSlider.value, 10);
+      const fixedColor = ballColorPicker.value;
+      const useRandomColor = randomColorCheck.checked;
+
+      for (let i = 0; i < count; i++) {
+        const radius = size;
+        const x = Math.random() * (canvas.width - 2 * radius) + radius;
+        const y = Math.random() * (canvas.height - 2 * radius) + radius;
+        const color = useRandomColor ? getRandomColor() : fixedColor;
+
+        // Create each ball with an ID
+        const ball = new Ball(x, y, radius, color, nextBallID++);
+        balls.push(ball);
+      }
+    }
+
+    function animate() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // detect & resolve collisions
+      detectCollisions();
+
+      // update & draw
+      const showIDs = showIDsCheck.checked;
+      for (let ball of balls) {
+        ball.update();
+        ball.draw(ctx, showIDs);
+      }
+
+      requestAnimationFrame(animate);
+    }
+
+    /********************************************************
+     * Event Listeners & Initialization
+     ********************************************************/
+    // Sliders
+    ballCountSlider.addEventListener("input", () => {
+      ballCountValue.textContent = ballCountSlider.value;
+      createBalls();
+    });
+    ballSizeSlider.addEventListener("input", () => {
+      ballSizeValue.textContent = ballSizeSlider.value;
+      createBalls();
+    });
+    ballColorPicker.addEventListener("input", () => {
+      if (!randomColorCheck.checked) {
+        createBalls();
+      }
+    });
+    randomColorCheck.addEventListener("change", () => {
+      createBalls();
+    });
+
+    // Speed
+    speedSlider.addEventListener("input", () => {
+      speedMultiplier = parseFloat(speedSlider.value);
+      speedValue.textContent = speedMultiplier.toFixed(1);
+    });
+
+    // Show IDs toggle
+    showIDsCheck.addEventListener("change", () => {
+      // No need to re-create; IDs are already there. Just changes drawing logic.
+    });
+
+    // Initialize
+    createBalls();
+    animate();
+  </script>
+</body>
+</html>
